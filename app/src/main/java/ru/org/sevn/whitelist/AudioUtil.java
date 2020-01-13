@@ -21,6 +21,8 @@ import android.app.NotificationManager;
 import android.content.Context;
 import android.content.Intent;
 import android.media.AudioManager;
+import android.os.Build;
+import android.provider.Settings;
 import android.util.Log;
 
 public class AudioUtil {
@@ -46,9 +48,11 @@ public class AudioUtil {
     public static void accessDND(Context ctx) {
         NotificationManager mNotificationManager = (NotificationManager) ctx.getSystemService(Context.NOTIFICATION_SERVICE);
         if (mNotificationManager != null) {
-            if (!mNotificationManager.isNotificationPolicyAccessGranted()) {
-                Intent intent = new Intent(android.provider.Settings.ACTION_NOTIFICATION_POLICY_ACCESS_SETTINGS);
-                ctx.startActivity(intent);
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                if (!mNotificationManager.isNotificationPolicyAccessGranted()) {
+                    Intent intent = new Intent(Settings.ACTION_NOTIFICATION_POLICY_ACCESS_SETTINGS);
+                    ctx.startActivity(intent);
+                }
             }
         }
     }
@@ -56,13 +60,15 @@ public class AudioUtil {
     public static void setSMSCallVolume(Context ctx, int pct) {
         NotificationManager mNotificationManager = (NotificationManager) ctx.getSystemService(Context.NOTIFICATION_SERVICE);
         if (mNotificationManager != null) {
-            if (mNotificationManager.isNotificationPolicyAccessGranted()) {
-                if (mNotificationManager.getCurrentInterruptionFilter() >= NotificationManager.INTERRUPTION_FILTER_ALL && pct == 100) {
-                    mNotificationManager.setInterruptionFilter(NotificationManager.INTERRUPTION_FILTER_ALL);
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                if (mNotificationManager.isNotificationPolicyAccessGranted()) {
+                    if (mNotificationManager.getCurrentInterruptionFilter() >= NotificationManager.INTERRUPTION_FILTER_ALL && pct == 100) {
+                        mNotificationManager.setInterruptionFilter(NotificationManager.INTERRUPTION_FILTER_ALL);
+                    }
+                } else {
+                    Intent intent = new Intent(Settings.ACTION_NOTIFICATION_POLICY_ACCESS_SETTINGS);
+                    ctx.startActivity(intent);
                 }
-            } else {
-                Intent intent = new Intent(android.provider.Settings.ACTION_NOTIFICATION_POLICY_ACCESS_SETTINGS);
-                ctx.startActivity(intent);
             }
         }
 

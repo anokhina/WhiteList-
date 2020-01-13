@@ -29,58 +29,152 @@ import android.widget.Toast;
 
 import com.android.internal.telephony.ITelephony;
 
+import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import java.util.List;
 
 public class IncomingCallReceiver extends BroadcastReceiver {
     //private ITelephony telephonyService;
 
+    public class HungUper {
+        public void hangUp(String phoneNumber) {
+
+        }
+    }
+
+    private void adjustVol(final Context context, final String phoneNumber) {
+        if (phoneNumber.contains(MainActivity.SW_OFF_VOL)) {
+            AudioUtil.setSMSCallVolume(context, 0);
+        }
+    }
+
+    private void icall(final Context context, final String phoneNumber, final HungUper hungUper) {
+        CursorUtil.phonebookContacts(context, phoneNumber,
+                new CursorUtil.Callback<List<Long>>() {
+                    @Override
+                    public void accept(List<Long> longs) {
+                        adjustVol(context, phoneNumber);
+                        if (longs.size() > 0) {
+
+                        } else {
+                            hungUper.hangUp(phoneNumber);
+                        }
+                    }
+                },
+                new CursorUtil.Callback<List<Long>>() {
+                    @Override
+                    public void accept(List<Long> longs) {
+                        adjustVol(context, phoneNumber);
+                        if (longs.size() > 0) {
+                            //TODO increase volume
+                            if (!phoneNumber.contains(MainActivity.SW_OFF_VOL)) {
+                                AudioUtil.setSMSCallVolume(context, 100);
+                            }
+                        } else {
+                            hungUper.hangUp(phoneNumber);
+                        }
+                    }
+                }
+        );
+    }
+
     @Override
     public void onReceive(final Context context, final Intent intent) {
         final TelephonyManager tm = (TelephonyManager) context.getSystemService(Context.TELEPHONY_SERVICE);
         try {
             final Class c = Class.forName(tm.getClass().getName());
-            final Method m = c.getDeclaredMethod("getITelephony");
-            m.setAccessible(true);
-            final ITelephony telephonyService = (ITelephony) m.invoke(tm);
             final Bundle bundle = intent.getExtras();
             final String phoneNumber = bundle.getString("incoming_number");
             Log.e("INCOMING", phoneNumber);
+            final StringBuilder sb = new StringBuilder();
+            for (final Method m : c.getDeclaredMethods()) {
+                sb.append(">" + m.getName()).append("\n");
+            }
+            MainActivity.LAST_NOTICE = sb.toString();
             //toast(context, "INCOMING>" + phoneNumber, Toast.LENGTH_SHORT);
-            CursorUtil.phonebookContacts(context, phoneNumber,
-                    new CursorUtil.Callback<List<Long>>(){
-                        @Override
-                        public void accept(List<Long> longs) {
-                            if (longs.size() > 0) {
-
-                            } else {
-                                hangUp(telephonyService, phoneNumber);
-                            }
-                        }
-                    },
-                    new CursorUtil.Callback<List<Long>>(){
-                        @Override
-                        public void accept(List<Long> longs) {
-                            if (longs.size() > 0) {
-                                //TODO increase volume
-                                AudioUtil.setSMSCallVolume(context, 100);
-                            } else {
-                                hangUp(telephonyService, phoneNumber);
-                            }
+            HungUper hungUper;
+            hungUper = new HungUper() {
+                @Override
+                public void hangUp(String phoneNumber) {
+                    AudioUtil.setSMSCallVolume(context, 0);
+                }
+            };
+            try {
+                final Method m = c.getDeclaredMethod("getITelephony");
+                m.setAccessible(true);
+                final ITelephony telephonyService = (ITelephony) m.invoke(tm);
+                hungUper = new HungUper() {
+                    @Override
+                    public void hangUp(String phoneNumber) {
+                        if (!IncomingCallReceiver.this.hangUp(telephonyService, phoneNumber)) {
+                            AudioUtil.setSMSCallVolume(context, 0);
                         }
                     }
-            );
-        } catch (Exception e) {
-            e.printStackTrace();
+                };
+
+            } catch (Exception e) {
+                e.printStackTrace();
+                try {
+                    final Method m = c.getDeclaredMethod("getITelephonyMSim");
+                    m.setAccessible(true);
+                    final Object telephonyService = m.invoke(tm);
+
+                    final Method mcall = telephonyService.getClass().getMethod("endCall", int.class);
+                    final Method mgetPreferredDataSubscription = telephonyService.getClass().getMethod("getPreferredDataSubscription");
+                    final int csub = (int) mgetPreferredDataSubscription.invoke(telephonyService);
+
+                    hungUper = new HungUper() {
+                        @Override
+                        public void hangUp(String phoneNumber) {
+                            if (!hangUpOld(csub, mcall, telephonyService, phoneNumber)) {
+                                AudioUtil.setSMSCallVolume(context, 0);
+                            }
+                        }
+                    };
+                } catch (Exception e1) {
+                    e.printStackTrace();
+                }
+            }
+            icall(context, phoneNumber, hungUper);
+        } catch (Exception ex) {
+            ex.printStackTrace();
         }
     }
 
-    private void hangUp(final ITelephony telephonyService, final String phoneNumber) {
-        telephonyService.silenceRinger();
-        telephonyService.endCall();
+    private boolean hangUpOld(int csub, Method mcall, final Object telephonyService, final String phoneNumber) {
+        boolean ret = false;
+        try {
+            ret = (boolean) mcall.invoke(telephonyService, csub);
+            if (!ret) {
+                ret = (boolean) mcall.invoke(telephonyService, csub + 1);
+            }
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+        if (ret) {
+            Log.e("HANG UP", phoneNumber);
+            //toast(context, "HANG UP>" + phoneNumber, Toast.LENGTH_SHORT);
+            MainActivity.LAST_NOTICE = "LAST BLOCKED:" + phoneNumber;
+        }
+        return ret;
+    }
+
+    private boolean hangUp(final ITelephony telephonyService, final String phoneNumber) {
+        try {
+            telephonyService.silenceRinger();
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+        try {
+            telephonyService.endCall();
+        } catch (Exception ex) {
+            ex.printStackTrace();
+            return false;
+        }
         Log.e("HANG UP", phoneNumber);
         //toast(context, "HANG UP>" + phoneNumber, Toast.LENGTH_SHORT);
         MainActivity.LAST_NOTICE = "LAST BLOCKED:" + phoneNumber;
+        return true;
     }
 
     private void toast(Context context, String msg, int length) {
